@@ -1,7 +1,7 @@
 FROM node:20-alpine AS builder
 
 RUN apk update && \
-    apk add git ffmpeg wget curl bash openssl
+    apk add git ffmpeg wget curl bash openssl dos2unix
 
 LABEL version="2.2.3" description="Api to control whatsapp features through http requests." 
 LABEL maintainer="Davidson Gomes" git="https://github.com/DavidsonGomes"
@@ -9,25 +9,37 @@ LABEL contact="contato@atendai.com"
 
 WORKDIR /evolution
 
-COPY ./package.json ./tsconfig.json ./
+# Copia arquivos de configuração primeiro
+COPY ./package*.json ./
+COPY ./tsconfig.json ./
+COPY ./tsup.config.ts ./
 
-RUN npm install
+# Instala todas as dependências (incluindo dev para build)
+RUN npm ci --silent
 
+# Copia código fonte
 COPY ./src ./src
 COPY ./public ./public
 COPY ./prisma ./prisma
 COPY ./manager ./manager
-COPY ./.env.example ./.env
 COPY ./runWithProvider.js ./
-COPY ./tsup.config.ts ./
 
+# Copia arquivo de ambiente (se existir)
+COPY ./.env ./.env* ./
+
+# Copia scripts Docker
 COPY ./Docker ./Docker
 
 RUN chmod +x ./Docker/scripts/* && dos2unix ./Docker/scripts/*
 
+# Gera banco de dados
 RUN ./Docker/scripts/generate_database.sh
 
-RUN npm run build
+# Build do projeto - usa tsup diretamente para evitar problemas de tipos
+RUN npm run build:docker
+
+# Remove devDependencies para reduzir tamanho
+RUN npm prune --production
 
 FROM node:20-alpine AS final
 
@@ -55,4 +67,4 @@ ENV DOCKER_ENV=true
 
 EXPOSE 8080
 
-ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ]
+ENTRYPOINT ["/bin/bash", "-c", ". ./Docker/scripts/deploy_database.sh && npm run start:prod" ] 
